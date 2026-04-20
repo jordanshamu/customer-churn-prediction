@@ -242,14 +242,6 @@ df = load_and_validate("data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv")
 
 ---
 
-## Related Projects
-
-- **Project 2:** [Marketing A/B Test Analysis](https://github.com/jordanshamu/Marketing-A-B-Test-Analysis) — 588K users, 42.5% conversion lift, p<0.001
-- **Project 3:** Customer Segmentation & Cohort Analysis — RFM, K-Means, CLV estimation
-- **Project 5:** Experimentation Framework *(coming soon)*
-
----
-
 ## Author
 
 **Jordan Shamukiga**  
