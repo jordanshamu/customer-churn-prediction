@@ -19,20 +19,6 @@ The core business problem hasn't changed either. Acquiring a new customer costs 
 
 ---
 
-## Portfolio Narrative
-
-| Project | Focus | Link |
-|---|---|---|
-| Project 1 | Healthcare Readmission Prediction | GitHub |
-| Project 2 | Marketing A/B Test Analysis | [GitHub](https://github.com/jordanshamu/Marketing-A-B-Test-Analysis) |
-| Project 3 | Customer Segmentation & Cohort Analysis | GitHub |
-| **Project 4** | **Customer Churn Prediction ← You are here** | — |
-| Project 5 | Experimentation Framework | Planned |
-
-**Project 3 → Project 4 arc:** Project 3 answered *who are our customers?* through RFM and K-Means segmentation. Project 4 answers *which customers will leave, and what can we do about it?* Together they form a customer intelligence loop: **Understand → Predict → Retain**.
-
----
-
 ## Key Results
 
 ### Model Performance (Hold-Out Test Set, 20% stratified split)
