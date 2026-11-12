@@ -9,6 +9,8 @@
 
 > Analyst: [Jordan Shamukiga](https://github.com/jordanshamu) · [datascienceportfol.io/jordanshamu](https://datascienceportfol.io/jordanshamu)
 
+> **Note on the committed results:** the notebook outputs, charts and `reports/churn_metrics.json` currently in this repo were generated on the notebook's synthetic fallback data, because the IBM Telco file was not present when it was last run. A re-run on the real IBM file is in progress; until it lands, treat the figures below as provisional.
+
 ---
 
 ## Business Context
