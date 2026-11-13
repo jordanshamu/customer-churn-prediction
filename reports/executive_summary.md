@@ -12,7 +12,7 @@
 
 **26.5% of customers** in the dataset churned. For the financial case we assume each churner we keep is worth **$500** (an assumption, not a measured figure).
 
-Customers who eventually cancel show recognisable patterns weeks or months beforehand: they are on flexible month-to-month contracts, they have been customers for less than a year, they pay by electronic check rather than automatic payment, and they have not subscribed to any support or security add-on services.
+Customers who churned share recognisable traits in the data: they are mostly on flexible month-to-month contracts, they have been customers for less than a year, they pay by electronic check rather than automatic payment, and they have not subscribed to any support or security add-on services.
 
 ---
 
@@ -64,7 +64,7 @@ The ROI figures below cost every offer at the same $50 assumption.
 
 **Without this model:** Retention efforts are untargeted or reactive. Customers leave before anyone reaches out, or offers are sent to customers who were never at risk — wasting budget.
 
-**With this model:** Every retention dollar is directed toward customers the model has identified as genuinely at risk, calibrated by the cost of acting vs. the cost of losing them.
+**With this model:** Offers go to customers the model ranks as most likely to churn, at a cut-off chosen to balance offer cost against the value of customers kept. About half of flagged customers in the test set actually churned (52.2%), so some offers will still go to customers who would have stayed.
 
 ### Unit Economics
 

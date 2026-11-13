@@ -1,7 +1,7 @@
 # 📉 Customer Churn Prediction
 ### ML Pipeline with Business Cost-Benefit Analysis
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python)](https://www.python.org/)
 [![Jupyter](https://img.shields.io/badge/Jupyter-Lab-orange?logo=jupyter)](https://jupyter.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-Selected%20Model-8e44ad)](https://xgboost.readthedocs.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -17,7 +17,7 @@
 
 This dataset comes from IBM's sample data library. The competitive dynamics in telecom have shifted since it was published (streaming unbundling, 5G, etc.), but the analytical patterns are surprisingly durable: contract structure, early-tenure vulnerability, and payment friction still drive churn in most subscription businesses today. I chose this dataset because it's a well-known benchmark with realistic class imbalance (26.5% churn), which means I can compare my results against published baselines honestly.
 
-The core business problem hasn't changed either. A churn model that just predicts who leaves isn't useful on its own — what matters is whether you can intervene *before* they leave, at a cost that makes economic sense. That's why this project doesn't stop at model accuracy. The threshold optimisation and cost-benefit framing in §10 are where the actual business value lives.
+The core business problem hasn't changed either. A churn model that just predicts who leaves isn't useful on its own — what matters is whether you can intervene *before* they leave, at a cost that makes economic sense. That's why this project doesn't stop at model accuracy: §10 puts a dollar value on each threshold, and §13 tests how sensitive the result is to the assumed retention rate.
 
 ---
 
@@ -84,7 +84,7 @@ Test set (1,409 customers), threshold 0.50: 550 customers flagged, 287 of whom c
 | `is_month_to_month` | Binary flag — highest-risk contract type |
 | `pays_by_echeck` | Electronic check — strong churn signal |
 
-**Considered but dropped:** `contract_tenure_interaction` (contract type × tenure cross feature). The tree models find this interaction on their own through recursive splitting, and for logistic regression the one-hot contract dummies plus scaled tenure already capture the pattern adequately. Adding it just introduced redundancy without measurable lift in CV.
+**Considered but dropped:** `contract_tenure_interaction` (contract type × tenure cross feature). The tree models find this interaction on their own through recursive splitting, and for logistic regression the one-hot contract dummies plus scaled tenure already capture the pattern. It was dropped on that reasoning; it was not tested in CV.
 
 ### 3. Preprocessing
 - Missing value imputation (TotalCharges for 0-tenure new customers — filled with 0, not mean, because these are genuinely new accounts with no spending history)
@@ -116,7 +116,7 @@ The $50 offer cost, $500 value per retained churner and 35% retention success ra
 
 ### 7. Segment-Specific Risk & Retention Playbook
 - Churn probability mapped onto Contract × Tenure segments
-- Tiered retention interventions calibrated to risk level and economic value
+- Tiered retention interventions matched to each segment's risk level
 - ROI on the test set at a 35% retention success rate (assumption — not measured), with 15% / 50% sensitivity
 - Per-segment ROI from scoring all customers (demonstration only, since it includes training rows)
 
@@ -179,7 +179,7 @@ customer-churn-prediction/
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3 (tested with 3.13)
 - Jupyter Lab or Jupyter Notebook
 
 ### Installation
@@ -233,17 +233,19 @@ df = load_and_validate("data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv")
 
 ## Technical Stack
 
-| Tool | Version | Purpose |
+Versions used for the committed results (older versions are untested):
+
+| Tool | Tested version | Purpose |
 |---|---|---|
-| Python | 3.8+ | Core language |
-| pandas | 1.5+ | Data manipulation |
-| numpy | 1.23+ | Numerical computing |
-| scikit-learn | 1.1+ | ML pipeline, preprocessing, evaluation |
-| xgboost | 1.7+ | Gradient boosting model |
-| matplotlib | 3.6+ | Base visualisation |
-| seaborn | 0.12+ | Statistical visualisation |
-| shap | 0.41+ | Model explainability |
-| jupyter | 3.0+ | Interactive notebook environment |
+| Python | 3.13 | Core language |
+| pandas | 3.1 | Data manipulation |
+| numpy | 2.5 | Numerical computing |
+| scikit-learn | 1.9 | ML pipeline, preprocessing, evaluation |
+| xgboost | 3.4 | Gradient boosting model |
+| matplotlib | 3.11 | Base visualisation |
+| seaborn | 0.13 | Statistical visualisation |
+| shap | 0.54 | Model explainability |
+| jupyterlab | 4.6 | Interactive notebook environment |
 
 ---
 
