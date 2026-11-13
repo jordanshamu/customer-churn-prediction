@@ -2,14 +2,15 @@
 ## Early Warning System for Customer Retention
 
 **Prepared by:** Jordan Shamukiga, Data Analyst  
-**Date:** March 2026  
+**Date:** November 2026  
+**Data:** IBM Telco Customer Churn, 7,043 customers (figures from `reports/churn_metrics.json`)  
 **Audience:** Business Leadership, Customer Success, Marketing
 
 ---
 
 ## The Business Problem
 
-Roughly **1 in 4 customers** cancels their subscription before their contract expires. Each lost customer represents approximately **$600 in lifetime value**, and re-acquiring a lapsed customer costs 5 to 10 times more than keeping them in the first place.
+**26.5% of customers** in the dataset churned. For the financial case we assume each churner we keep is worth **$500** (an assumption, not a measured figure).
 
 Customers who eventually cancel show recognisable patterns weeks or months beforehand: they are on flexible month-to-month contracts, they have been customers for less than a year, they pay by electronic check rather than automatic payment, and they have not subscribed to any support or security add-on services.
 
@@ -17,30 +18,30 @@ Customers who eventually cancel show recognisable patterns weeks or months befor
 
 ## What We Built
 
-We trained a machine learning model on 7,000 customer records to score each customer's likelihood of churning in the next billing cycle, flag at-risk customers for intervention, and explain why each customer is at risk so the retention team can personalise the outreach.
+We trained a machine learning model on 7,043 customer records (5,634 for training, 1,409 held out for testing) to score each customer's likelihood of churning, flag at-risk customers for intervention, and explain why each customer is at risk so the retention team can personalise the outreach.
 
 What the model does not do: it cannot tell us whether a retention offer will actually work for any individual customer. It identifies who is *likely* to leave based on current patterns — the actual effectiveness of intervention still needs to be measured through a controlled experiment (see Recommended Next Steps).
 
-After comparing three modelling approaches, the best-performing model (XGBoost gradient boosting) correctly identifies churning customers with strong discriminative power across all tested thresholds.
+We compared three modelling approaches and they performed about the same (ROC-AUC 0.844–0.847 in cross-validation). We chose XGBoost because its predicted probabilities were somewhat more accurate (lower Brier score), though all three overstate churn risk. On the held-out customers it has ROC-AUC 0.842, and at the chosen cut-off it catches 76.7% of churners, with 52.2% of flagged customers actually churning.
 
 ---
 
 ## What Drives Churn: Five Key Findings
 
 **1. Contract type is the single strongest predictor.**  
-Customers on month-to-month contracts churn at approximately 43%. Customers on two-year contracts churn at just 3%. The switching cost embedded in a longer contract is the most effective retention mechanism in the data.
+Customers on month-to-month contracts churn at 42.7%. Customers on two-year contracts churn at 2.8%. The switching cost embedded in a longer contract is the most effective retention mechanism in the data.
 
 **2. The first 12 months are the danger zone.**  
-Churn probability drops sharply after the first year. Customers who survive past 24 months are largely anchored. Retention investment should be front-loaded toward new customers, not spread evenly across the base.
+47.4% of customers with 12 months' tenure or less churned, against 14.0% of those past 24 months, and 55.5% of all churners left within their first year. Retention investment should be front-loaded toward new customers, not spread evenly across the base.
 
-**3. Customers who pay by electronic check churn at nearly twice the average rate.**  
+**3. Customers who pay by electronic check churn at 1.7× the average rate** (45.3%, vs. 16.0% for automatic payment).  
 This is a correlation, not a proven cause. We don't know whether the payment method itself drives disengagement, or whether customers who choose e-check are already less committed for other reasons (perhaps they actively avoided auto-pay because they were keeping their options open). If the payment method is causal, the intervention is simple: make auto-pay enrollment frictionless. If it's just a proxy for a less committed customer profile, then switching their payment method won't help — you'd need to address the underlying disengagement. The model flags these customers either way, but the right response depends on which explanation is true.
 
 **4. Service adoption is a powerful stickiness lever.**  
-Customers subscribed to zero add-on services churn at roughly 50%. Customers subscribed to four or more services churn at under 10%. Each additional service meaningfully reduces churn probability — though there's a confound: customers with many services also tend to be on longer contracts, so the effect isn't purely attributable to services alone.
+Among customers with at least one add-on service, churn falls from 45.8% with one service to 5.3% with all six. Customers with zero add-ons churn at 21.4%, because that group includes customers with no internet service, who churn at 7.4%. There's a confound: customers with many services also tend to be on longer contracts (97% of six-service customers are), so the effect isn't purely attributable to services alone.
 
 **5. Higher monthly charges increase churn risk.**  
-Customers paying above-average monthly bills — particularly on fiber optic internet — show elevated price sensitivity. These customers are actively comparison-shopping and may respond well to loyalty pricing.
+Churners paid $74 a month on average, against $61 for customers who stayed, and fiber optic customers churn at 41.9% vs. 19.0% for DSL. These customers are actively comparison-shopping and may respond well to loyalty pricing.
 
 ---
 
@@ -48,12 +49,14 @@ Customers paying above-average monthly bills — particularly on fiber optic int
 
 Not every at-risk customer warrants the same response. We segmented the customer base by contract type and tenure to create four risk tiers, each with a specific first action:
 
-| Risk Tier | Who They Are | Day-1 Action | Estimated Cost |
+| Risk Tier | Who They Are | Actual churn rate | Day-1 Action |
 |---|---|---|---|
-| 🔴 Critical | Month-to-month, <6 months tenure | CS rep calls within 14 days of signup; satisfaction check, then offers 1-year contract at 15% discount + free TechSupport for 3 months | $75–100 |
-| 🟠 High | Month-to-month, 7–12 months tenure | At month 9, send personalised email: $25 bill credit applied automatically + one-click link to upgrade to annual contract | $50–75 |
-| 🟡 Medium | One-year contract, <12 months tenure | At month 6, email campaign: bundled add-on (streaming + security) at 20% intro rate for 6 months | $25–40 |
-| 🟢 Low | Two-year contracts, all tenures | 60 days before contract expiry, send renewal offer with 5% loyalty discount locked for next term | $15–20 |
+| 🔴 Critical | Month-to-month, 0–6 months tenure | 55.2% (n = 1,413) | CS rep calls within 14 days of signup; satisfaction check, then offers 1-year contract at 15% discount + free TechSupport for 3 months |
+| 🟠 High | Month-to-month, 7–12 months tenure | 42.0% (n = 581) | At month 9, send personalised email: $25 bill credit applied automatically + one-click link to upgrade to annual contract |
+| 🟡 Medium | One-year contract, 0–12 months tenure | 10.5% (n = 124) | At month 6, email campaign: bundled add-on (streaming + security) at 20% intro rate for 6 months |
+| 🟢 Low | Two-year contracts, all tenures | 2.8% (n = 1,695) | 60 days before contract expiry, send renewal offer with 5% loyalty discount locked for next term |
+
+The ROI figures below cost every offer at the same $50 assumption.
 
 ---
 
@@ -67,27 +70,30 @@ Not every at-risk customer warrants the same response. We segmented the customer
 
 | Parameter | Value |
 |---|---|
-| Average customer lifetime value (CLV) | $600 |
-| Cost of retention offer | $50 |
-| Net value of successful retention | $450 (CLV saved minus offer) |
-| Retention success rate | 35% (see sensitivity note below) |
-| Cost of missing a churner | $500 (CLV lost) |
+| Value kept per retained churner | $500 (assumption) |
+| Cost of retention offer | $50, paid for every flagged customer (assumption) |
+| Net value of a successful retention | $450 ($500 minus the offer) |
+| Retention success rate | 35% (assumption; applies only to flagged customers who would have churned) |
+
+Net value = 0.35 × $500 × (flagged customers who churn) − $50 × (all flagged customers).
 
 ### Sensitivity: The Retention Rate Assumption
 
-The 35% retention success rate is an industry benchmark, not a measured number from this company's campaigns. This assumption drives the entire ROI model, so it deserves scrutiny:
+The 35% retention success rate is an assumption, not a measured number from this company's campaigns. It drives the ROI, so it deserves scrutiny. On the 1,409 held-out customers, the model flags 550, of whom 287 churned. The offers cost $27,500 in total:
 
-- At **15% retention success**: the ROI multiple drops to roughly **2×** — still positive, but much less attractive. The campaign is borderline for lower-risk segments.
-- At **35% retention success** (baseline): the ROI multiple is **4–6×**.
-- At **50% retention success**: the ROI multiple climbs to **7–8×**.
+| Retention success | Retained value | Net value | ROI multiple (retained ÷ cost) |
+|---|---|---|---|
+| 15% | $21,525 | −$5,975 | 0.78× |
+| **35% (assumption)** | **$50,225** | **$22,725** | **1.83×** |
+| 50% | $71,750 | $44,250 | 2.61× |
 
-Until the actual retention rate is measured through a controlled experiment, the 4–6× figure should be treated as an estimate, not a guarantee.
+At 15% the campaign loses money. Until the actual retention rate is measured through a controlled experiment, the 1.83× figure should be treated as an estimate, not a guarantee.
 
 ### Threshold Optimisation
 
-The model uses an **optimised classification threshold** rather than the statistical default of 0.5. Because the cost of missing a churner ($500) is 10× the cost of a wasted retention offer ($50), it's economically rational to lower the threshold and accept more false positives in exchange for catching more true churners.
+The classification threshold was chosen to maximise net value on out-of-fold training predictions, not left at the statistical default. Under these assumptions, an offer to a customer who would have churned is worth 0.35 × $500 − $50 = $125 on average, and an offer to one who would have stayed costs $50.
 
-The result: the optimised model generates materially higher net business value than the same model at its default threshold, from the same number of predictions.
+The result: the threshold came out at 0.50, the same as the default, so in this run threshold tuning added no value over the default.
 
 ---
 
@@ -108,7 +114,7 @@ The result: the optimised model generates materially higher net business value t
 - **Real-time scoring:** The model is designed for batch monthly scoring. Real-time API deployment would require additional engineering work.
 - **Causal inference:** The model identifies customers likely to churn given current conditions. It cannot tell us whether a specific retention offer will change the outcome for any individual.
 - **External competitive factors:** Competitor pricing and promotions are not in the dataset.
-- **Measured retention rates:** The ROI projections use industry benchmarks, not this company's actual campaign performance data.
+- **Measured retention rates:** The ROI projections use assumed values, not this company's actual campaign performance data.
 
 ---
 

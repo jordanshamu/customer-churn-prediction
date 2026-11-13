@@ -24,12 +24,13 @@ import seaborn as sns
 from pathlib import Path
 
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.model_selection import StratifiedKFold, cross_validate
 from sklearn.metrics import (
     roc_auc_score, roc_curve, precision_recall_curve,
     confusion_matrix, classification_report,
-    f1_score, average_precision_score
+    f1_score, average_precision_score, brier_score_loss
 )
+from sklearn.calibration import calibration_curve
 from sklearn.pipeline import Pipeline
 from sklearn.inspection import permutation_importance
 
@@ -143,6 +144,15 @@ def summarize_features(df: pd.DataFrame) -> pd.DataFrame:
 # 2. PREPROCESSING & FEATURE ENGINEERING
 # ─────────────────────────────────────────────────────────────────────────────
 
+TENURE_BINS   = [0, 6, 12, 24, 48, 72]
+TENURE_LABELS = ["0–6mo", "7–12mo", "13–24mo", "25–48mo", "49–72mo"]
+
+
+def assign_tenure_band(tenure: pd.Series) -> pd.Series:
+    """Bin tenure (months) into bands. include_lowest=True keeps tenure 0 in 0–6mo."""
+    return pd.cut(tenure, bins=TENURE_BINS, labels=TENURE_LABELS, include_lowest=True)
+
+
 def encode_binary(df: pd.DataFrame, cols: list) -> pd.DataFrame:
     """Label-encode Yes/No columns to 1/0."""
     df = df.copy()
@@ -162,19 +172,19 @@ def encode_categoricals(df: pd.DataFrame, cat_cols: list) -> tuple[pd.DataFrame,
     return df
 
 
-def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+def engineer_features(df: pd.DataFrame, high_value_cutoff: float = None) -> pd.DataFrame:
     """
     Feature engineering specific to Telco churn data.
     Creates interaction and ratio features that improve model signal.
     """
     df = df.copy()
 
+    # TotalCharges arrives as text in the IBM file (11 blank values for
+    # tenure-0 customers). Convert to numeric and fill blanks with 0.
+    df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce").fillna(0)
+
     # Tenure bands (behavioral segmentation tie-in from Project 3)
-    df["tenure_band"] = pd.cut(
-        df["tenure"],
-        bins=[0, 6, 12, 24, 48, 72],
-        labels=["0–6mo", "7–12mo", "13–24mo", "25–48mo", "49–72mo"]
-    )
+    df["tenure_band"] = assign_tenure_band(df["tenure"])
 
     # Revenue per month relative to contract (loyalty score proxy)
     df["monthly_charges_log"] = np.log1p(df["MonthlyCharges"])
@@ -197,8 +207,10 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
             lambda row: sum(v == "Yes" for v in row), axis=1
         )
 
-    # High-value flag (top quartile by MonthlyCharges)
-    q75 = df["MonthlyCharges"].quantile(0.75)
+    # High-value flag (top quartile by MonthlyCharges). For modelling, pass the
+    # cutoff computed on the training split only; if omitted, the cutoff is
+    # computed from the rows passed in (fine for EDA, leaks if used before a split).
+    q75 = df["MonthlyCharges"].quantile(0.75) if high_value_cutoff is None else high_value_cutoff
     df["is_high_value"] = (df["MonthlyCharges"] >= q75).astype(int)
 
     # Month-to-month contract flag (highest churn risk contract type)
@@ -227,7 +239,7 @@ def evaluate_model(
     verbose: bool = True,
 ) -> dict:
     """
-    Full model evaluation: ROC-AUC, PR-AUC, F1, confusion matrix, classification report.
+    Full model evaluation: ROC-AUC, average precision, Brier score, F1, confusion matrix.
 
     Returns
     -------
@@ -237,7 +249,8 @@ def evaluate_model(
     y_pred = (y_prob >= threshold).astype(int)
 
     roc_auc  = roc_auc_score(y_test, y_prob)
-    pr_auc   = average_precision_score(y_test, y_prob)
+    avg_prec = average_precision_score(y_test, y_prob)
+    brier    = brier_score_loss(y_test, y_prob)
     f1       = f1_score(y_test, y_pred)
     cm       = confusion_matrix(y_test, y_pred)
     tn, fp, fn, tp = cm.ravel()
@@ -246,7 +259,8 @@ def evaluate_model(
         "model":        model_name,
         "threshold":    threshold,
         "roc_auc":      round(roc_auc, 4),
-        "pr_auc":       round(pr_auc, 4),
+        "average_precision": round(avg_prec, 4),
+        "brier":        round(brier, 4),
         "f1":           round(f1, 4),
         "precision":    round(tp / (tp + fp) if (tp + fp) > 0 else 0, 4),
         "recall":       round(tp / (tp + fn) if (tp + fn) > 0 else 0, 4),
@@ -258,7 +272,8 @@ def evaluate_model(
         print(f"  {model_name}")
         print(f"{'─'*50}")
         print(f"  ROC-AUC  : {roc_auc:.4f}")
-        print(f"  PR-AUC   : {pr_auc:.4f}")
+        print(f"  Avg prec : {avg_prec:.4f}")
+        print(f"  Brier    : {brier:.4f}")
         print(f"  F1 Score : {f1:.4f}")
         print(f"  Precision: {metrics['precision']:.4f}")
         print(f"  Recall   : {metrics['recall']:.4f}")
@@ -271,69 +286,110 @@ def evaluate_model(
     return metrics
 
 
-def cross_validate_model(model, X: pd.DataFrame, y: pd.Series, cv: int = 5) -> dict:
-    """Stratified k-fold CV returning mean ± std for ROC-AUC and F1."""
-    skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+def cross_validate_model(model, X: pd.DataFrame, y: pd.Series, cv: int = 5,
+                         random_state: int = 42) -> dict:
+    """
+    Stratified k-fold CV returning mean, std and per-fold scores for ROC-AUC,
+    average precision and Brier score (lower Brier = better).
 
-    roc_scores = cross_val_score(model, X, y, cv=skf, scoring="roc_auc", n_jobs=-1)
-    f1_scores  = cross_val_score(model, X, y, cv=skf, scoring="f1",      n_jobs=-1)
+    With a fixed random_state every model is scored on the same folds, so
+    per-fold scores can be compared pairwise. Pass a Pipeline if the model
+    needs preprocessing, so it is refit inside each fold.
+    """
+    skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
+    res = cross_validate(model, X, y, cv=skf, n_jobs=-1,
+                         scoring=["roc_auc", "average_precision", "neg_brier_score"])
 
-    return {
-        "cv_roc_auc_mean": round(roc_scores.mean(), 4),
-        "cv_roc_auc_std":  round(roc_scores.std(),  4),
-        "cv_f1_mean":      round(f1_scores.mean(),  4),
-        "cv_f1_std":       round(f1_scores.std(),   4),
-    }
+    out = {}
+    for key, name, sign in [("test_roc_auc", "roc_auc", 1),
+                            ("test_average_precision", "average_precision", 1),
+                            ("test_neg_brier_score", "brier", -1)]:
+        folds = sign * res[key]
+        out[f"cv_{name}_mean"]  = round(float(folds.mean()), 4)
+        out[f"cv_{name}_std"]   = round(float(folds.std()), 4)
+        out[f"cv_{name}_folds"] = [round(float(v), 4) for v in folds]
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. BUSINESS COST-BENEFIT ANALYSIS
 # ─────────────────────────────────────────────────────────────────────────────
 
+def campaign_value(
+    n_flagged: int,
+    n_flagged_churners: float,
+    offer_cost: float = 50,
+    value_per_save: float = 500,
+    retention_success: float = 0.35,
+) -> dict:
+    """
+    Economics of sending one retention offer to every flagged customer.
+
+    The retention success rate applies only to flagged customers who would
+    have churned; offers to customers who would have stayed cost money and
+    save nothing.
+
+        offer cost     = offer_cost × n_flagged
+        retained value = retention_success × value_per_save × n_flagged_churners
+        net value      = retained value − offer cost
+    """
+    cost     = offer_cost * n_flagged
+    retained = retention_success * value_per_save * n_flagged_churners
+    return {
+        "retention_success": retention_success,
+        "n_flagged":         int(n_flagged),
+        "n_flagged_churners": float(n_flagged_churners),
+        "offer_cost":        float(cost),
+        "retained_value":    float(retained),
+        "net_value":         float(retained - cost),
+        "roi_multiple":      float(retained / cost) if cost > 0 else float("nan"),
+    }
+
+
 def cost_benefit_analysis(
     y_true: pd.Series,
     y_prob: np.ndarray,
-    cost_false_negative: float = 500,   # Lost CLV per missed churner
-    cost_false_positive: float = 50,    # Retention offer cost per false alarm
-    benefit_true_positive: float = 450, # Saved CLV per successful retention
-    n_customers: int = None,
+    offer_cost: float = 50,          # Cost of one retention offer (sent to every flagged customer)
+    value_per_save: float = 500,     # Value kept when a churner is retained
+    retention_success: float = 0.35, # Share of flagged churners the offer retains (assumption)
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """
-    Sweep classification thresholds and compute net business value at each point.
+    Sweep classification thresholds and compute net campaign value at each point,
+    using the same economics as campaign_value():
 
-    Parameters
-    ----------
-    cost_false_negative  : Revenue lost per churner we miss (default $500 CLV).
-    cost_false_positive  : Cost of a retention offer sent to a non-churner (default $50).
-    benefit_true_positive: Net value of successfully retaining a churner (default $450).
-    n_customers          : Scale to fleet size (optional).
+        net value(t) = retention_success × value_per_save × TP(t) − offer_cost × (TP(t) + FP(t))
 
     Returns
     -------
-    DataFrame with threshold, net_value, precision, recall at each threshold.
+    DataFrame with threshold, flagged count, confusion counts, offer cost,
+    retained value, net value, precision and recall at each threshold.
     """
-    thresholds = np.linspace(0.05, 0.95, 91)
+    thresholds = np.round(np.linspace(0.05, 0.95, 91), 2)
+    y_true = np.asarray(y_true)
     records = []
 
     for t in thresholds:
         y_pred = (y_prob >= t).astype(int)
-        cm = confusion_matrix(y_true, y_pred)
-        tn, fp, fn, tp = cm.ravel()
-
-        net = (tp * benefit_true_positive) - (fp * cost_false_positive) - (fn * cost_false_negative)
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+        econ = campaign_value(tp + fp, tp, offer_cost, value_per_save, retention_success)
         records.append({
-            "threshold":  round(t, 2),
-            "net_value":  net,
-            "tp": tp, "fp": fp, "tn": tn, "fn": fn,
+            "threshold":      float(t),
+            "flagged":        int(tp + fp),
+            "tp": int(tp), "fp": int(fp), "tn": int(tn), "fn": int(fn),
+            "offer_cost":     econ["offer_cost"],
+            "retained_value": econ["retained_value"],
+            "net_value":      econ["net_value"],
             "precision": tp / (tp + fp) if (tp + fp) > 0 else 0,
             "recall":    tp / (tp + fn) if (tp + fn) > 0 else 0,
         })
 
     df_cba = pd.DataFrame(records)
-    optimal_row = df_cba.loc[df_cba["net_value"].idxmax()]
-    print(f"\n💰 Optimal threshold by business value: {optimal_row['threshold']:.2f}")
-    print(f"   Net value at optimal threshold     : ${optimal_row['net_value']:,.0f}")
-    print(f"   Precision / Recall                 : {optimal_row['precision']:.2%} / {optimal_row['recall']:.2%}")
+    if verbose:
+        optimal_row = df_cba.loc[df_cba["net_value"].idxmax()]
+        print(f"\n💰 Threshold with the highest net value: {optimal_row['threshold']:.2f}")
+        print(f"   Net value at that threshold        : ${optimal_row['net_value']:,.0f}")
+        print(f"   Precision / Recall                 : {optimal_row['precision']:.2%} / {optimal_row['recall']:.2%}")
 
     return df_cba
 
@@ -438,7 +494,8 @@ def plot_confusion_matrix(cm_data: np.ndarray, model_name: str,
 
 
 def plot_cost_benefit(df_cba: pd.DataFrame, optimal_threshold: float,
-                       viz_dir: str = "../visualizations"):
+                       viz_dir: str = "../visualizations",
+                       title: str = "Threshold Optimization — Net Business Value"):
     """Net business value curve across classification thresholds."""
     fig, ax = plt.subplots(figsize=(9, 5))
     ax.plot(df_cba["threshold"], df_cba["net_value"] / 1000,
@@ -449,7 +506,7 @@ def plot_cost_benefit(df_cba: pd.DataFrame, optimal_threshold: float,
                lw=2, label=f"Optimal threshold = {optimal_threshold:.2f}")
     ax.axhline(0, color=PALETTE["grid"], lw=1)
 
-    opt_row = df_cba.loc[df_cba["threshold"] == optimal_threshold]
+    opt_row = df_cba.loc[np.isclose(df_cba["threshold"], optimal_threshold)]
     if not opt_row.empty:
         opt_val = opt_row["net_value"].values[0] / 1000
         ax.annotate(f"${opt_val:,.0f}K",
@@ -460,7 +517,7 @@ def plot_cost_benefit(df_cba: pd.DataFrame, optimal_threshold: float,
 
     ax.set_xlabel("Classification Threshold", fontsize=12)
     ax.set_ylabel("Net Business Value ($K)", fontsize=12)
-    ax.set_title("Threshold Optimization — Net Business Value", fontsize=15, fontweight="bold")
+    ax.set_title(title, fontsize=14, fontweight="bold")
     ax.legend(fontsize=10)
     fig.tight_layout()
     save_fig(fig, "09_cost_benefit_threshold.png", viz_dir)
@@ -482,35 +539,58 @@ def plot_feature_importance(importances: pd.Series, model_name: str, top_n: int 
 
 
 def plot_model_comparison(metrics_list: list, viz_dir: str = "../visualizations"):
-    """Grouped bar chart comparing models across ROC-AUC, PR-AUC, and F1."""
+    """
+    Grouped bar chart of 5-fold CV results (mean ± std) on the training set:
+    ROC-AUC, average precision and Brier score (lower Brier is better).
+    """
     models = [m["model"] for m in metrics_list]
-    roc    = [m["roc_auc"] for m in metrics_list]
-    pr     = [m["pr_auc"]  for m in metrics_list]
-    f1     = [m["f1"]      for m in metrics_list]
+    series = [
+        ("ROC-AUC",           "cv_roc_auc",           PALETTE["highlight"]),
+        ("Average precision", "cv_average_precision", PALETTE["mid"]),
+        ("Brier (lower = better)", "cv_brier",        PALETTE["accent"]),
+    ]
 
     x = np.arange(len(models))
     w = 0.26
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    b1 = ax.bar(x - w, roc, w, label="ROC-AUC",  color=PALETTE["highlight"], alpha=0.9)
-    b2 = ax.bar(x,     pr,  w, label="PR-AUC",   color=PALETTE["mid"],       alpha=0.9)
-    b3 = ax.bar(x + w, f1,  w, label="F1 Score", color=PALETTE["accent"],    alpha=0.9)
-
-    for bars in [b1, b2, b3]:
-        for bar in bars:
-            ax.text(bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + 0.005,
-                    f"{bar.get_height():.3f}",
-                    ha="center", va="bottom", fontsize=9, fontweight="bold")
+    for i, (label, key, color) in enumerate(series):
+        means = [m[f"{key}_mean"] for m in metrics_list]
+        stds  = [m[f"{key}_std"]  for m in metrics_list]
+        bars = ax.bar(x + (i - 1) * w, means, w, yerr=stds, capsize=4,
+                      label=label, color=color, alpha=0.9)
+        for bar, val in zip(bars, means):
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
+                    f"{val:.3f}", ha="center", va="bottom", fontsize=9, fontweight="bold")
 
     ax.set_ylim(0, 1.1)
     ax.set_xticks(x)
     ax.set_xticklabels(models, fontsize=11)
     ax.set_ylabel("Score", fontsize=12)
-    ax.set_title("Model Performance Comparison — ROC-AUC · PR-AUC · F1", fontsize=14, fontweight="bold")
+    ax.set_title("Model Comparison — 5-fold CV on Training Set (mean ± std)", fontsize=14, fontweight="bold")
     ax.legend(fontsize=10)
     fig.tight_layout()
     save_fig(fig, "10_model_comparison.png", viz_dir)
+    plt.show()
+
+
+def plot_reliability_curve(models_probs: dict, y_true: pd.Series, n_bins: int = 10,
+                           viz_dir: str = "../visualizations",
+                           filename: str = "10b_reliability_curve.png",
+                           title: str = "Reliability Curve"):
+    """Observed churn rate vs. mean predicted probability (quantile bins) per model."""
+    fig, ax = plt.subplots(figsize=(7, 6))
+    ax.plot([0, 1], [0, 1], "k--", lw=1.2, alpha=0.5, label="Perfectly calibrated")
+    for name, y_prob in models_probs.items():
+        frac_pos, mean_pred = calibration_curve(y_true, y_prob, n_bins=n_bins, strategy="quantile")
+        ax.plot(mean_pred, frac_pos, marker="o", lw=2, color=MODEL_COLORS.get(name, "#333"),
+                label=f"{name}  (Brier = {brier_score_loss(y_true, y_prob):.3f})")
+    ax.set_xlabel("Mean predicted probability", fontsize=12)
+    ax.set_ylabel("Observed churn rate", fontsize=12)
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.legend(loc="upper left", fontsize=9)
+    fig.tight_layout()
+    save_fig(fig, filename, viz_dir)
     plt.show()
 
 
