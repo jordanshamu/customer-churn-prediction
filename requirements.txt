@@ -1,27 +1,28 @@
 # Customer Churn Prediction — Dependencies
 # Project 4: Jordan Shamukiga Portfolio
 # Install: pip install -r requirements.txt
+# Minimums are the versions used for the committed results; older versions are untested.
 
 # ── Core data science ──────────────────────────────────────────────────────
-numpy>=1.23.0
-pandas>=1.5.0
-scipy>=1.9.0
+numpy>=2.5
+pandas>=3.1
+scipy>=1.18
 
 # ── Machine learning ──────────────────────────────────────────────────────
-scikit-learn>=1.1.0
-xgboost>=1.7.0
+scikit-learn>=1.9
+xgboost>=3.4
 
 # ── Model explainability ──────────────────────────────────────────────────
-shap>=0.41.0
+shap>=0.54
 
 # ── Visualisation ─────────────────────────────────────────────────────────
-matplotlib>=3.6.0
-seaborn>=0.12.0
+matplotlib>=3.11
+seaborn>=0.13
 
 # ── Notebook environment ──────────────────────────────────────────────────
-jupyterlab>=3.0.0
-ipykernel>=6.0.0
-nbformat>=5.7.0
+jupyterlab>=4.6
+ipykernel>=7.4
+nbformat>=5.11
 
 # ── Utilities ─────────────────────────────────────────────────────────────
 pathlib2>=2.3.0; python_version < '3.4'
